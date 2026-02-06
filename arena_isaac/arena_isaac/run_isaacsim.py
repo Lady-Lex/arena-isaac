@@ -6,6 +6,12 @@ import os
 import arena_simulation_setup
 import arena_simulation_setup.utils.cattrs
 
+# Per-world behavior toggles (set by launch via ARENA_WORLD_NAME)
+ARENA_WORLD_NAME = os.getenv('ARENA_WORLD_NAME', '')
+HIDE_GROUND_PLANE_VISUAL = ARENA_WORLD_NAME == 'restaurant_isaac'
+DISABLE_GROUND_PLANE = False
+DISABLE_ZONE_FLOORS = ARENA_WORLD_NAME == 'restaurant_isaac'
+
 # Use the isaacsim to import SimulationApp
 from isaacsim import SimulationApp
 
@@ -37,7 +43,7 @@ from isaac_utils.utils.assets import get_assets_root_path_safe
 from omni.importer.urdf import _urdf
 from omni.isaac.core import SimulationContext, World
 from omni.isaac.core.utils import extensions, prims, stage
-from pxr import Sdf
+from pxr import Sdf, UsdGeom
 
 EXTENSIONS_PEOPLE = [
     'omni.anim.people', 
@@ -114,8 +120,18 @@ plane_material_paths = [
     # 'https://omniverse-content-production.s3.us-west-2.amazonaws.com/Materials/2023_1/vMaterials_2/Ceramic/Ceramic_Tiles_Glazed_Diamond.mdl'
 ]
 world = World()
-world.scene.add_ground_plane(size=100, z_position=0.0)
+if not DISABLE_GROUND_PLANE:
+    world.scene.add_ground_plane(size=100, z_position=0.0)
 _stage = omni.usd.get_context().get_stage()
+
+# Restaurant scene already includes its own floor visuals; keep collision but hide the plane.
+if HIDE_GROUND_PLANE_VISUAL:
+    try:
+        gp_prim = _stage.GetPrimAtPath('/World/groundPlane')
+        if gp_prim.IsValid():
+            UsdGeom.Imageable(gp_prim).MakeInvisible()
+    except Exception:
+        pass
 plane_mdl_path = random.choice(plane_material_paths)
 plane_mtl_name = plane_mdl_path.split('/')[-1][:-4]
 plane_mtl_path = "/World/Looks/PlaneMaterial"
@@ -146,6 +162,27 @@ assets_root_path = get_assets_root_path_safe()
 # Navmesh config and baking
 simulation_app.update()
 stage = omni.usd.get_context().get_stage()
+
+# Ensure common root prims exist (some services expect these paths).
+try:
+    _root_paths = ["/World/Walls", "/World/Doors"]
+    if not DISABLE_ZONE_FLOORS:
+        _root_paths.append("/World/Floors")
+    for _path in _root_paths:
+        prim = stage.GetPrimAtPath(_path)
+        if not (prim and prim.IsValid()):
+            prims.create_prim(_path, "Xform")
+except Exception:
+    # Best-effort only; missing prims will be reported by Isaac if needed.
+    pass
+
+if DISABLE_ZONE_FLOORS:
+    try:
+        floors_prim = stage.GetPrimAtPath('/World/Floors')
+        if floors_prim.IsValid():
+            prims.delete_prim('/World/Floors')
+    except Exception:
+        pass
 
 omni.kit.commands.execute("CreateNavMeshVolumeCommand",
                           parent_prim_path=Sdf.Path("/World"),

@@ -1,4 +1,5 @@
 import omni
+import os
 
 from isaac_utils.utils.geom import Scale, Translation
 from isaac_utils.utils.material import Material
@@ -34,6 +35,9 @@ def spawn_floor(floor: Floor) -> bool:
 
 
 def spawn_floors_callback(request: SpawnFloors.Request, response: SpawnFloors.Response):
+    if os.getenv('ARENA_WORLD_NAME', '') == 'restaurant_isaac':
+        response.ret = [True] * len(request.floors)
+        return response
     response.ret = list(map(spawn_floor, request.floors))
     return response
 
